@@ -63,7 +63,7 @@ function isImmutableAsset(filePath: string): boolean {
   );
 }
 
-const LOOPBACK_HOST_RE = /^(?:localhost|[^.]+(?:\.[^.]+)*\.localhost|127(?:\.\d{1,3}){3}|[?::1]?)$/i;
+const LOOPBACK_HOST_RE = /^(?:localhost|[^.]+(?:\.[^.]+)*\.localhost|127(?:\.\d{1,3}){3}|\[?::1\]?)$/i;
 
 function isHttpsRequest(req: express.Request): boolean {
   const forwardedProto = req.headers['x-forwarded-proto'];
@@ -185,4 +185,43 @@ export function createApp(config?: Config) {
   app.use('/v1', moderationRouter);
   app.use('/v1', responsesRouter);
 
-  app.use('/v1beta', createProxyRateLimiter(
+  app.use('/v1beta', createProxyRateLimiter(cfg.proxyRateLimitRpm));
+  app.use('/v1beta', geminiRouter);
+
+  app.use('/mcp', createProxyRateLimiter(cfg.proxyRateLimitRpm));
+  app.use('/mcp', mcpRouter);
+
+  app.use(statusRouter);
+  app.use(errorHandler);
+
+  if (cfg.serveStaticAssets) {
+    const clientDist = cfg.clientDist
+      ? path.resolve(cfg.clientDist)
+      : path.resolve(__dirname, '../../client/dist');
+    app.use(compression());
+    app.use(express.static(clientDist, {
+      setHeaders(res, filePath) {
+        res.setHeader(
+          'Cache-Control',
+          isImmutableAsset(filePath)
+            ? 'public, max-age=31536000, immutable'
+            : 'no-cache',
+        );
+      },
+    }));
+    app.use((req, res, next) => {
+      if (req.path.startsWith('/api/') || req.path.startsWith('/v1/') || req.path.startsWith('/v1beta/')) {
+        next();
+        return;
+      }
+      res.sendFile(path.join(clientDist, 'index.html'), {
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+    });
+  }
+
+  return app;
+}
+
+const app = createApp();
+export default app;
