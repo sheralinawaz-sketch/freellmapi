@@ -387,5 +387,5 @@ export function createApp(config?: Config) {
   }
 
   return app;
-} Export default app;
+} export default app;
 
